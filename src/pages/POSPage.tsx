@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import type { Product, CartItem } from '../types'
-import { fetchProducts } from '../lib/api'
+import type { Product, CartItem, Category } from '../types'
+import { fetchProducts, fetchCategories } from '../lib/api'
 import { calculateLineTotal, calculateStockDeduction, fuzzyMatch, formatCurrency, getUnitLabel } from '../lib/utils'
 
 const CART_STORAGE_KEY = 'grey-store-cart'
@@ -17,8 +17,10 @@ function loadCartFromStorage(): CartItem[] {
 
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [cart, setCart] = useState<CartItem[]>(loadCartFromStorage)
   const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -30,10 +32,11 @@ export default function POSPage() {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart))
   }, [cart])
 
-  const loadProducts = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const data = await fetchProducts()
-      setProducts(data)
+      const [prods, cats] = await Promise.all([fetchProducts(), fetchCategories()])
+      setProducts(prods)
+      setCategories(cats)
     } catch {
       setError('Failed to load products')
     } finally {
@@ -42,8 +45,8 @@ export default function POSPage() {
   }, [])
 
   useEffect(() => {
-    loadProducts()
-  }, [loadProducts])
+    loadData()
+  }, [loadData])
 
   // Show success message when returning from checkout
   useEffect(() => {
@@ -54,16 +57,25 @@ export default function POSPage() {
       localStorage.removeItem(CART_STORAGE_KEY)
       // Clear location state so it doesn't re-show on refresh
       navigate('/', { replace: true, state: {} })
-      loadProducts()
+      loadData()
       const t = setTimeout(() => setSuccess(''), 3000)
       return () => clearTimeout(t)
     }
-  }, [location.state, navigate, loadProducts])
+  }, [location.state, navigate, loadData])
 
-  const filteredProducts = products.filter(p =>
-    fuzzyMatch(p.name, search) ||
-    (p.category ? fuzzyMatch(p.category, search) : false)
+  const getCategoryNames = useCallback((product: Product) =>
+    product.category_ids
+      .map(id => categories.find(c => c.id === id)?.name ?? '')
+      .filter(Boolean),
+    [categories]
   )
+
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = fuzzyMatch(p.name, search) ||
+      getCategoryNames(p).some(name => fuzzyMatch(name, search))
+    const matchesCategory = !selectedCategory || p.category_ids.includes(selectedCategory)
+    return matchesSearch && matchesCategory
+  })
 
   const favorites = products.filter(p => p.is_favorite)
 
@@ -176,8 +188,37 @@ export default function POSPage() {
         )}
       </div>
 
+      {/* Category filter tabs */}
+      {categories.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium border transition ${
+              selectedCategory === null
+                ? 'bg-primary text-white border-primary'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+            }`}
+          >
+            All
+          </button>
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(selectedCategory === cat.id ? null : cat.id)}
+              className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border-2 transition ${
+                selectedCategory === cat.id
+                  ? `${cat.color} border-current`
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+              }`}
+            >
+              {cat.icon} {cat.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Favorites quick access */}
-      {!search && favorites.length > 0 && (
+      {!search && !selectedCategory && favorites.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-gray-500 mb-2">⭐ Favorites</h2>
           <div className="flex gap-2 overflow-x-auto pb-2">
@@ -191,7 +232,7 @@ export default function POSPage() {
       {/* Product list */}
       <div className="space-y-2">
         {filteredProducts.map(product => (
-          <ProductCard key={product.id} product={product} cartDeduction={getCartDeduction(product.id)} onAdd={addToCart} />
+          <ProductCard key={product.id} product={product} categories={categories} cartDeduction={getCartDeduction(product.id)} onAdd={addToCart} />
         ))}
         {filteredProducts.length === 0 && (
           <p className="text-center text-gray-400 py-8">No products found</p>
@@ -247,8 +288,9 @@ export default function POSPage() {
   )
 }
 
-function ProductCard({ product, cartDeduction, onAdd }: {
+function ProductCard({ product, categories, cartDeduction, onAdd }: {
   product: Product
+  categories: Category[]
   cartDeduction: number
   onAdd: (p: Product, u: CartItem['unit']) => void
 }) {
@@ -256,9 +298,13 @@ function ProductCard({ product, cartDeduction, onAdd }: {
   const isLowStock = product.track_inventory && product.stock_on_hand <= product.low_stock_threshold && product.stock_on_hand > 0
   const isOutOfStock = product.track_inventory && availableStock <= 0
 
+  const productCategories = product.category_ids
+    .map(id => categories.find(c => c.id === id))
+    .filter((c): c is Category => c !== undefined)
+
   return (
     <div className={`bg-white rounded-xl p-3 shadow-sm border ${isOutOfStock ? 'opacity-50' : ''}`}>
-      <div className="flex items-start justify-between mb-2">
+      <div className="flex items-start justify-between mb-1">
         <div>
           <h3 className="font-semibold">{product.name}</h3>
           <p className="text-sm text-gray-500">
@@ -276,6 +322,16 @@ function ProductCard({ product, cartDeduction, onAdd }: {
           {formatCurrency(product.price_per_unit)}{product.stock_type === 'weight' ? '/kg' : '/pc'}
         </span>
       </div>
+
+      {productCategories.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {productCategories.map(cat => (
+            <span key={cat.id} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cat.color}`}>
+              {cat.icon} {cat.name}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-2 flex-wrap">
         {product.stock_type === 'piece' && (

@@ -1,4 +1,16 @@
 /**
+ * Category type for product categorization
+ * Supports label, emoji icon, and Tailwind color class
+ */
+export interface Category {
+  id: string;
+  name: string;
+  icon: string;   // emoji, e.g. "🐾"
+  color: string;  // Tailwind classes, e.g. "bg-blue-100 text-blue-700"
+  created_at: string;
+}
+
+/**
  * Product type for Grey Store POS application
  * Represents an item that can be sold in the store
  */
@@ -15,6 +27,7 @@ export interface Product {
   low_stock_threshold: number;
   cost_per_unit: number | null;
   category: string | null;
+  category_ids: string[];
   is_favorite: boolean;
   created_at: string;
   updated_at: string;

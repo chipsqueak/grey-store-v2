@@ -1,22 +1,25 @@
 import { useState, useEffect } from 'react'
-import type { Product } from '../types'
-import { fetchProducts, createProduct, updateProduct } from '../lib/api'
+import type { Product, Category } from '../types'
+import { fetchProducts, createProduct, updateProduct, fetchCategories } from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    loadProducts()
+    loadData()
   }, [])
 
-  const loadProducts = async () => {
+  const loadData = async () => {
     try {
-      setProducts(await fetchProducts())
+      const [prods, cats] = await Promise.all([fetchProducts(), fetchCategories()])
+      setProducts(prods)
+      setCategories(cats)
     } catch {
       setError('Failed to load products')
     } finally {
@@ -33,7 +36,7 @@ export default function ProductsPage() {
       }
       setShowForm(false)
       setEditingProduct(null)
-      await loadProducts()
+      await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save product')
     }
@@ -58,6 +61,7 @@ export default function ProductsPage() {
       {showForm && (
         <ProductForm
           product={editingProduct}
+          categories={categories}
           onSave={handleSave}
           onCancel={() => { setShowForm(false); setEditingProduct(null) }}
         />
@@ -67,7 +71,7 @@ export default function ProductsPage() {
         {products.map(product => (
           <div key={product.id} className="bg-white rounded-xl p-3 shadow-sm border">
             <div className="flex items-start justify-between">
-              <div>
+              <div className="flex-1 min-w-0">
                 <h3 className="font-semibold flex items-center gap-1">
                   {product.is_favorite && <span>⭐</span>}
                   {product.name}
@@ -88,10 +92,23 @@ export default function ProductsPage() {
                     {product.sack_price ? ` @ ${formatCurrency(product.sack_price)}` : ' (auto-priced)'}
                   </p>
                 )}
+                {product.category_ids.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {product.category_ids.map(id => {
+                      const cat = categories.find(c => c.id === id)
+                      if (!cat) return null
+                      return (
+                        <span key={id} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cat.color}`}>
+                          {cat.icon} {cat.name}
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => { setEditingProduct(product); setShowForm(true) }}
-                className="text-sm text-primary"
+                className="text-sm text-primary shrink-0 ml-2"
               >
                 Edit
               </button>
@@ -115,15 +132,18 @@ interface ProductFormData {
   low_stock_threshold: number
   cost_per_unit: number | null
   category: string | null
+  category_ids: string[]
   is_favorite: boolean
 }
 
 function ProductForm({
   product,
+  categories,
   onSave,
   onCancel,
 }: {
   product: Product | null
+  categories: Category[]
   onSave: (data: ProductFormData) => Promise<void>
   onCancel: () => void
 }) {
@@ -139,9 +159,19 @@ function ProductForm({
     low_stock_threshold: product?.low_stock_threshold ?? 5,
     cost_per_unit: product?.cost_per_unit ?? null,
     category: product?.category ?? null,
+    category_ids: product?.category_ids ?? [],
     is_favorite: product?.is_favorite ?? false,
   })
   const [saving, setSaving] = useState(false)
+
+  const toggleCategory = (id: string) => {
+    setForm(f => ({
+      ...f,
+      category_ids: f.category_ids.includes(id)
+        ? f.category_ids.filter(c => c !== id)
+        : [...f.category_ids, id],
+    }))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -280,37 +310,54 @@ function ProductForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+      {/* Categories multi-select pills */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Categories</label>
+        {categories.length === 0 ? (
+          <p className="text-xs text-gray-400">No categories yet. Add them in Settings.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {categories.map(cat => {
+              const selected = form.category_ids.includes(cat.id)
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => toggleCategory(cat.id)}
+                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border-2 transition ${
+                    selected
+                      ? `${cat.color} border-current`
+                      : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {cat.icon} {cat.name}
+                  {selected && <span className="ml-0.5">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-4">
+        <label className="flex items-center gap-2 text-sm">
           <input
-            type="text"
-            value={form.category ?? ''}
-            onChange={e => setForm(f => ({ ...f, category: e.target.value || null }))}
-            className="w-full border rounded-lg px-3 py-2 text-base outline-none focus:ring-2 focus:ring-primary"
-            placeholder="e.g. Dog Food"
+            type="checkbox"
+            checked={form.is_favorite}
+            onChange={e => setForm(f => ({ ...f, is_favorite: e.target.checked }))}
+            className="w-5 h-5 rounded"
           />
-        </div>
-        <div className="flex flex-col gap-2 justify-end pb-1">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.is_favorite}
-              onChange={e => setForm(f => ({ ...f, is_favorite: e.target.checked }))}
-              className="w-5 h-5 rounded"
-            />
-            ⭐ Favorite
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.track_inventory}
-              onChange={e => setForm(f => ({ ...f, track_inventory: e.target.checked }))}
-              className="w-5 h-5 rounded"
-            />
-            📦 Track stock
-          </label>
-        </div>
+          ⭐ Favorite
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.track_inventory}
+            onChange={e => setForm(f => ({ ...f, track_inventory: e.target.checked }))}
+            className="w-5 h-5 rounded"
+          />
+          📦 Track stock
+        </label>
       </div>
 
       <div className="flex gap-2 pt-2">

@@ -8,6 +8,7 @@ import InventoryPage from './pages/InventoryPage'
 import CashPage from './pages/CashPage'
 import ReportsPage from './pages/ReportsPage'
 import CheckoutPage from './pages/CheckoutPage'
+import SettingsPage from './pages/SettingsPage'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -31,6 +32,7 @@ function ProtectedRoutes() {
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="cash" element={<CashPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>
   )
