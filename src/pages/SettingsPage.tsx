@@ -29,6 +29,8 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const { inventoryEnabled, setInventoryEnabled } = useInventorySettings()
+  const [confirmInventory, setConfirmInventory] = useState<boolean | null>(null)
+  const [togglingInventory, setTogglingInventory] = useState(false)
 
   useEffect(() => {
     loadCategories()
@@ -73,6 +75,26 @@ export default function SettingsPage() {
     }
   }
 
+  const handleInventoryToggleRequest = () => {
+    setConfirmInventory(!inventoryEnabled)
+  }
+
+  const handleInventoryConfirm = async () => {
+    if (confirmInventory === null) return
+    setTogglingInventory(true)
+    setConfirmInventory(null)
+    try {
+      await setInventoryEnabled(confirmInventory)
+      setSuccess(confirmInventory ? 'Inventory management enabled.' : 'Inventory management disabled.')
+      setTimeout(() => setSuccess(''), 2500)
+    } catch (err) {
+      console.error('Failed to update inventory setting:', err)
+      setError('Failed to update inventory setting. Please try again.')
+    } finally {
+      setTogglingInventory(false)
+    }
+  }
+
   if (loading) return <div className="flex items-center justify-center h-64 text-gray-500">Loading…</div>
 
   return (
@@ -94,8 +116,9 @@ export default function SettingsPage() {
             </p>
           </div>
           <button
-            onClick={() => setInventoryEnabled(!inventoryEnabled)}
-            className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+            onClick={handleInventoryToggleRequest}
+            disabled={togglingInventory}
+            className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
               inventoryEnabled ? 'bg-primary' : 'bg-gray-300'
             }`}
             role="switch"
@@ -160,6 +183,36 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* Inventory toggle confirmation dialog */}
+      {confirmInventory !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-base">
+              {confirmInventory ? 'Enable Inventory Management?' : 'Disable Inventory Management?'}
+            </h3>
+            <p className="text-sm text-gray-600">
+              {confirmInventory
+                ? 'Inventory tracking will be turned on for all users. Stock levels will be monitored and the Inventory page will become visible.'
+                : 'Inventory tracking will be turned off for all users. The Inventory page will be hidden and all products will be treated as having unlimited stock.'}
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleInventoryConfirm}
+                className="flex-1 bg-primary text-white font-semibold py-2 rounded-lg text-sm"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmInventory(null)}
+                className="flex-1 border py-2 rounded-lg text-gray-600 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

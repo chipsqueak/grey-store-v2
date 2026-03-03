@@ -1,6 +1,24 @@
 import { supabase } from './supabase'
 import type { Product, Sale, SaleItem, InventoryMovement, CashBucket, CashMovement, DailyClose, Category } from '../types'
 
+// ─── App Settings ─────────────────────────────────────────────────────────────
+
+export async function fetchInventoryEnabled(): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('inventory_enabled')
+    .single()
+  if (error) throw error
+  return data.inventory_enabled
+}
+
+export async function updateInventoryEnabled(enabled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('app_settings')
+    .upsert({ id: true, inventory_enabled: enabled, updated_at: new Date().toISOString() })
+  if (error) throw error
+}
+
 // ─── Categories ──────────────────────────────────────────────────────────────
 
 export async function fetchCategories(): Promise<Category[]> {

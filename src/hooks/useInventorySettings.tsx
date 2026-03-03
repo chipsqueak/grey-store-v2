@@ -1,28 +1,52 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
-
-const STORAGE_KEY = 'grey-store-inventory-enabled'
+import { supabase } from '../lib/supabase'
+import { fetchInventoryEnabled, updateInventoryEnabled } from '../lib/api'
 
 interface InventorySettingsContextValue {
   inventoryEnabled: boolean
-  setInventoryEnabled: (enabled: boolean) => void
+  setInventoryEnabled: (enabled: boolean) => Promise<void>
 }
 
 const InventorySettingsContext = createContext<InventorySettingsContextValue>({
   inventoryEnabled: true,
-  setInventoryEnabled: () => {},
+  setInventoryEnabled: async () => {},
 })
 
 export function InventorySettingsProvider({ children }: { children: ReactNode }) {
-  const [inventoryEnabled, setInventoryEnabledState] = useState<boolean>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored === null ? true : stored === 'true'
-  })
+  const [inventoryEnabled, setInventoryEnabledState] = useState<boolean>(true)
 
-  const setInventoryEnabled = (enabled: boolean) => {
-    localStorage.setItem(STORAGE_KEY, String(enabled))
-    setInventoryEnabledState(enabled)
+  useEffect(() => {
+    // Load initial value from Supabase
+    fetchInventoryEnabled()
+      .then(setInventoryEnabledState)
+      .catch((err) => { console.error('Failed to load inventory setting:', err) })
+
+    // Reflect changes made by other users/devices in real time
+    const channel = supabase
+      .channel('app_settings_changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'app_settings' },
+        (payload) => {
+          const record = payload.new as { inventory_enabled: boolean }
+          setInventoryEnabledState(record.inventory_enabled)
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  const setInventoryEnabled = async (enabled: boolean) => {
+    setInventoryEnabledState(enabled) // optimistic update
+    try {
+      await updateInventoryEnabled(enabled)
+    } catch (err) {
+      setInventoryEnabledState(!enabled) // revert on failure
+      throw err
+    }
   }
 
   return (
