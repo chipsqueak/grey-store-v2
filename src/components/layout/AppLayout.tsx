@@ -2,11 +2,11 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 
 const navItems = [
+  { to: '/reports', icon: '📊', label: 'Reports' },
   { to: '/', icon: '🛒', label: 'POS' },
+  { to: '/cash', icon: '💰', label: 'Cash' },
   { to: '/products', icon: '📦', label: 'Products' },
   { to: '/inventory', icon: '📋', label: 'Inventory' },
-  { to: '/cash', icon: '💰', label: 'Cash' },
-  { to: '/reports', icon: '📊', label: 'Reports' },
 ]
 
 export default function AppLayout() {
