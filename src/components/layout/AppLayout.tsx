@@ -7,6 +7,7 @@ const navItems = [
   { to: '/cash', icon: '💰', label: 'Cash' },
   { to: '/products', icon: '📦', label: 'Products' },
   { to: '/inventory', icon: '📋', label: 'Inventory' },
+  { to: '/settings', icon: '⚙️', label: 'Settings' },
 ]
 
 export default function AppLayout() {
