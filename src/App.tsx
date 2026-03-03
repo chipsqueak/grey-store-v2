@@ -7,6 +7,7 @@ import ProductsPage from './pages/ProductsPage'
 import InventoryPage from './pages/InventoryPage'
 import CashPage from './pages/CashPage'
 import ReportsPage from './pages/ReportsPage'
+import CheckoutPage from './pages/CheckoutPage'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -25,6 +26,7 @@ function ProtectedRoutes() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<POSPage />} />
+        <Route path="checkout" element={<CheckoutPage />} />
         <Route path="products" element={<ProductsPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="cash" element={<CashPage />} />

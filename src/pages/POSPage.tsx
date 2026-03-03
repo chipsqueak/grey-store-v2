@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import type { Product, CartItem } from '../types'
-import { fetchProducts, createSale, updateProduct, createInventoryMovement, fetchCashBucket, updateCashBucket, createCashMovement } from '../lib/api'
+import { fetchProducts } from '../lib/api'
 import { calculateLineTotal, calculateStockDeduction, fuzzyMatch, formatCurrency, getUnitLabel } from '../lib/utils'
 
 export default function POSPage() {
@@ -8,9 +9,10 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
-  const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const loadProducts = useCallback(async () => {
     try {
@@ -26,6 +28,20 @@ export default function POSPage() {
   useEffect(() => {
     loadProducts()
   }, [loadProducts])
+
+  // Show success message when returning from checkout
+  useEffect(() => {
+    const state = location.state as { successMessage?: string } | null
+    if (state?.successMessage) {
+      setSuccess(state.successMessage)
+      setCart([])
+      // Clear location state so it doesn't re-show on refresh
+      navigate('/', { replace: true, state: {} })
+      loadProducts()
+      const t = setTimeout(() => setSuccess(''), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [location.state, navigate, loadProducts])
 
   const filteredProducts = products.filter(p =>
     fuzzyMatch(p.name, search) ||
@@ -103,75 +119,9 @@ export default function POSPage() {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.line_total, 0)
 
-  const handleCheckout = async () => {
+  const handleCheckout = () => {
     if (cart.length === 0) return
-    setProcessing(true)
-    setError('')
-
-    try {
-      // Verify stock for tracked items
-      for (const item of cart) {
-        if (!item.product.track_inventory) continue
-        const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
-        if (item.product.stock_on_hand < deduction) {
-          throw new Error(`Insufficient stock for ${item.product.name}`)
-        }
-      }
-
-      // Create sale record
-      const saleItems = cart.map(item => ({
-        product_id: item.product.id,
-        product_name: item.product.name,
-        quantity: item.quantity,
-        unit: item.unit,
-        unit_price: item.line_total / item.quantity,
-        line_total: item.line_total,
-      }))
-
-      await createSale(saleItems, cartTotal, 'cash', null)
-
-      // Deduct stock and create inventory movements (tracked products only)
-      for (const item of cart) {
-        if (!item.product.track_inventory) continue
-        const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
-        await updateProduct(item.product.id, {
-          stock_on_hand: item.product.stock_on_hand - deduction,
-        })
-        await createInventoryMovement({
-          product_id: item.product.id,
-          type: 'sale',
-          qty_delta: -deduction,
-          notes: `Sale: ${item.quantity} ${getUnitLabel(item.unit)}`,
-        })
-      }
-
-      // Update cash bucket (add to bills by default for cash sales)
-      try {
-        const bucket = await fetchCashBucket()
-        if (bucket) {
-          await updateCashBucket(bucket.bills + cartTotal, bucket.coins)
-        }
-        await createCashMovement({
-          type: 'sale',
-          amount: cartTotal,
-          from_bucket: null,
-          to_bucket: 'bills',
-          category: null,
-          notes: `Sale of ${cart.length} item(s)`,
-        })
-      } catch {
-        // Cash bucket may not be initialized yet, that's okay
-      }
-
-      setCart([])
-      setSuccess(`Sale completed: ${formatCurrency(cartTotal)}`)
-      setTimeout(() => setSuccess(''), 3000)
-      await loadProducts()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Checkout failed')
-    } finally {
-      setProcessing(false)
-    }
+    navigate('/checkout', { state: { cart, cartTotal } })
   }
 
   if (loading) {
@@ -196,12 +146,12 @@ export default function POSPage() {
           placeholder="Search products…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full border rounded-lg px-3 py-2.5 pr-9 text-base focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+          className="w-full border rounded-lg px-3 py-2.5 pr-11 text-base focus:ring-2 focus:ring-primary focus:border-primary outline-none"
         />
         {search && (
           <button
             onClick={() => setSearch('')}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 transition"
             aria-label="Clear search"
           >
             ✕
@@ -269,10 +219,9 @@ export default function POSPage() {
 
             <button
               onClick={handleCheckout}
-              disabled={processing}
-              className="w-full bg-success text-white font-bold py-3 rounded-lg text-base disabled:opacity-50 transition"
+              className="w-full bg-success text-white font-bold py-3 rounded-lg text-base transition"
             >
-              {processing ? 'Processing…' : `Checkout ${formatCurrency(cartTotal)}`}
+              Checkout {formatCurrency(cartTotal)}
             </button>
           </div>
         </div>

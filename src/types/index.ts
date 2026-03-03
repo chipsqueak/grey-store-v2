@@ -54,7 +54,7 @@ export interface Sale {
   id: string;
   items: SaleItem[];
   total: number;
-  payment_method: 'cash' | 'gcash';
+  payment_method: 'cash' | 'gcash' | 'bpi';
   notes: string | null;
   created_at: string;
   user_id: string;
