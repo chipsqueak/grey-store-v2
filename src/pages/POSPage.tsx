@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Product, CartItem } from '../types'
 import { fetchProducts, createSale, updateProduct, createInventoryMovement, fetchCashBucket, updateCashBucket, createCashMovement } from '../lib/api'
-import { calculateLineTotal, calculateStockDeduction, hasEnoughStock, formatCurrency, getUnitLabel } from '../lib/utils'
+import { calculateLineTotal, calculateStockDeduction, fuzzyMatch, formatCurrency, getUnitLabel } from '../lib/utils'
 
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -28,27 +28,36 @@ export default function POSPage() {
   }, [loadProducts])
 
   const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    (p.category && p.category.toLowerCase().includes(search.toLowerCase()))
+    fuzzyMatch(p.name, search) ||
+    (p.category ? fuzzyMatch(p.category, search) : false)
   )
 
   const favorites = products.filter(p => p.is_favorite)
 
-  const addToCart = (product: Product, unit: CartItem['unit']) => {
-    if (!hasEnoughStock(product, unit, 1)) {
-      setError(`Insufficient stock for ${product.name}. Available: ${product.stock_on_hand} ${product.stock_type === 'weight' ? 'kg' : 'pcs'}`)
-      setTimeout(() => setError(''), 3000)
-      return
-    }
+  /** Returns the total stock deduction already in the cart for the given product */
+  const getCartDeduction = useCallback((productId: string): number =>
+    cart
+      .filter(item => item.product.id === productId)
+      .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product), 0),
+    [cart]
+  )
 
+  const addToCart = (product: Product, unit: CartItem['unit']) => {
     setCart(prev => {
+      // Compute total cart deduction for this product (across all units)
+      const existingDeduction = prev
+        .filter(item => item.product.id === product.id)
+        .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product), 0)
+      const newDeduction = calculateStockDeduction(unit, 1, product)
+
+      if (product.track_inventory && product.stock_on_hand < existingDeduction + newDeduction) {
+        setError(`Insufficient stock for ${product.name}. Available: ${product.stock_on_hand - existingDeduction} ${product.stock_type === 'weight' ? 'kg' : 'pcs'}`)
+        setTimeout(() => setError(''), 3000)
+        return prev
+      }
+
       const existing = prev.find(item => item.product.id === product.id && item.unit === unit)
       if (existing) {
-        if (!hasEnoughStock(product, unit, existing.quantity + 1)) {
-          setError(`Insufficient stock for ${product.name}`)
-          setTimeout(() => setError(''), 3000)
-          return prev
-        }
         return prev.map(item =>
           item.product.id === product.id && item.unit === unit
             ? { ...item, quantity: item.quantity + 1, line_total: calculateLineTotal(product, unit, item.quantity + 1) }
@@ -72,10 +81,17 @@ export default function POSPage() {
     }
     setCart(prev => prev.map((item, i) => {
       if (i !== index) return item
-      if (!hasEnoughStock(item.product, item.unit, qty)) {
-        setError(`Insufficient stock for ${item.product.name}`)
-        setTimeout(() => setError(''), 3000)
-        return item
+      if (item.product.track_inventory) {
+        // Total cart deduction for this product excluding the current item
+        const otherDeduction = prev
+          .filter((other, oi) => oi !== index && other.product.id === item.product.id)
+          .reduce((sum, other) => sum + calculateStockDeduction(other.unit, other.quantity, other.product), 0)
+        const newDeduction = calculateStockDeduction(item.unit, qty, item.product)
+        if (item.product.stock_on_hand < otherDeduction + newDeduction) {
+          setError(`Insufficient stock for ${item.product.name}`)
+          setTimeout(() => setError(''), 3000)
+          return item
+        }
       }
       return { ...item, quantity: qty, line_total: calculateLineTotal(item.product, item.unit, qty) }
     }))
@@ -93,8 +109,9 @@ export default function POSPage() {
     setError('')
 
     try {
-      // Verify stock for all items
+      // Verify stock for tracked items
       for (const item of cart) {
+        if (!item.product.track_inventory) continue
         const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
         if (item.product.stock_on_hand < deduction) {
           throw new Error(`Insufficient stock for ${item.product.name}`)
@@ -113,8 +130,9 @@ export default function POSPage() {
 
       await createSale(saleItems, cartTotal, 'cash', null)
 
-      // Deduct stock and create inventory movements
+      // Deduct stock and create inventory movements (tracked products only)
       for (const item of cart) {
+        if (!item.product.track_inventory) continue
         const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
         await updateProduct(item.product.id, {
           stock_on_hand: item.product.stock_on_hand - deduction,
@@ -172,13 +190,24 @@ export default function POSPage() {
       )}
 
       {/* Search */}
-      <input
-        type="search"
-        placeholder="Search products…"
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="w-full border rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-primary focus:border-primary outline-none"
-      />
+      <div className="relative">
+        <input
+          type="search"
+          placeholder="Search products…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full border rounded-lg px-3 py-2.5 pr-9 text-base focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+            aria-label="Clear search"
+          >
+            ✕
+          </button>
+        )}
+      </div>
 
       {/* Favorites quick access */}
       {!search && favorites.length > 0 && (
@@ -186,7 +215,7 @@ export default function POSPage() {
           <h2 className="text-sm font-semibold text-gray-500 mb-2">⭐ Favorites</h2>
           <div className="flex gap-2 overflow-x-auto pb-2">
             {favorites.map(p => (
-              <ProductQuickButton key={p.id} product={p} onAdd={addToCart} />
+              <ProductQuickButton key={p.id} product={p} cartDeduction={getCartDeduction(p.id)} onAdd={addToCart} />
             ))}
           </div>
         </div>
@@ -195,7 +224,7 @@ export default function POSPage() {
       {/* Product list */}
       <div className="space-y-2">
         {filteredProducts.map(product => (
-          <ProductCard key={product.id} product={product} onAdd={addToCart} />
+          <ProductCard key={product.id} product={product} cartDeduction={getCartDeduction(product.id)} onAdd={addToCart} />
         ))}
         {filteredProducts.length === 0 && (
           <p className="text-center text-gray-400 py-8">No products found</p>
@@ -252,9 +281,14 @@ export default function POSPage() {
   )
 }
 
-function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product, u: CartItem['unit']) => void }) {
-  const isLowStock = product.stock_on_hand <= product.low_stock_threshold
-  const isOutOfStock = product.stock_on_hand <= 0
+function ProductCard({ product, cartDeduction, onAdd }: {
+  product: Product
+  cartDeduction: number
+  onAdd: (p: Product, u: CartItem['unit']) => void
+}) {
+  const availableStock = product.track_inventory ? product.stock_on_hand - cartDeduction : Infinity
+  const isLowStock = product.track_inventory && product.stock_on_hand <= product.low_stock_threshold && product.stock_on_hand > 0
+  const isOutOfStock = product.track_inventory && availableStock <= 0
 
   return (
     <div className={`bg-white rounded-xl p-3 shadow-sm border ${isOutOfStock ? 'opacity-50' : ''}`}>
@@ -262,9 +296,14 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
         <div>
           <h3 className="font-semibold">{product.name}</h3>
           <p className="text-sm text-gray-500">
-            Stock: {product.stock_on_hand}{product.stock_type === 'weight' ? 'kg' : 'pcs'}
-            {isLowStock && !isOutOfStock && <span className="text-warning ml-1">⚠️ Low</span>}
-            {isOutOfStock && <span className="text-danger ml-1">❌ Out</span>}
+            {product.track_inventory
+              ? <>
+                  Stock: {product.stock_on_hand}{product.stock_type === 'weight' ? 'kg' : 'pcs'}
+                  {isLowStock && !isOutOfStock && <span className="text-warning ml-1">⚠️ Low</span>}
+                  {isOutOfStock && <span className="text-danger ml-1">❌ Out</span>}
+                </>
+              : <span className="text-blue-500">∞ Unlimited stock</span>
+            }
           </p>
         </div>
         <span className="text-sm font-medium text-gray-600">
@@ -286,14 +325,14 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
           <>
             <button
               onClick={() => onAdd(product, '0.5kg')}
-              disabled={isOutOfStock || product.stock_on_hand < 0.5}
+              disabled={product.track_inventory && availableStock < 0.5}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
             >
               + 0.5kg
             </button>
             <button
               onClick={() => onAdd(product, '1kg')}
-              disabled={isOutOfStock || product.stock_on_hand < 1}
+              disabled={product.track_inventory && availableStock < 1}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
             >
               + 1kg
@@ -301,7 +340,7 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
             {product.sack_size_kg && (
               <button
                 onClick={() => onAdd(product, 'sack')}
-                disabled={isOutOfStock || product.stock_on_hand < product.sack_size_kg}
+                disabled={product.track_inventory && availableStock < product.sack_size_kg}
                 className="bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
               >
                 + Sack ({product.sack_size_kg}kg)
@@ -314,12 +353,18 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (p: Product,
   )
 }
 
-function ProductQuickButton({ product, onAdd }: { product: Product; onAdd: (p: Product, u: CartItem['unit']) => void }) {
+function ProductQuickButton({ product, cartDeduction, onAdd }: {
+  product: Product
+  cartDeduction: number
+  onAdd: (p: Product, u: CartItem['unit']) => void
+}) {
   const defaultUnit = product.stock_type === 'piece' ? 'piece' : '1kg' as CartItem['unit']
+  const availableStock = product.track_inventory ? product.stock_on_hand - cartDeduction : Infinity
+  const isDisabled = product.track_inventory && availableStock <= 0
   return (
     <button
       onClick={() => onAdd(product, defaultUnit)}
-      disabled={product.stock_on_hand <= 0}
+      disabled={isDisabled}
       className="shrink-0 bg-white border rounded-xl px-3 py-2 text-sm font-medium shadow-sm disabled:opacity-40"
     >
       {product.name}

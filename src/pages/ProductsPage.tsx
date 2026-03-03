@@ -72,12 +72,15 @@ export default function ProductsPage() {
                   {product.is_favorite && <span>⭐</span>}
                   {product.name}
                   <span className="text-xs font-normal text-gray-400 ml-1">
-                    ({product.stock_type})
+                    ({product.stock_type}{!product.track_inventory ? ', untracked' : ''})
                   </span>
                 </h3>
                 <p className="text-sm text-gray-500">
-                  Stock: {product.stock_on_hand}{product.stock_type === 'weight' ? 'kg' : 'pcs'}
-                  {' · '}Price: {formatCurrency(product.price_per_unit)}{product.stock_type === 'weight' ? '/kg' : '/pc'}
+                  {product.track_inventory
+                    ? <>Stock: {product.stock_on_hand}{product.stock_type === 'weight' ? 'kg' : 'pcs'}{' · '}</>
+                    : <><span className="text-blue-500">∞ Unlimited</span>{' · '}</>
+                  }
+                  Price: {formatCurrency(product.price_per_unit)}{product.stock_type === 'weight' ? '/kg' : '/pc'}
                 </p>
                 {product.stock_type === 'weight' && product.sack_size_kg && (
                   <p className="text-xs text-gray-400">
@@ -103,6 +106,7 @@ export default function ProductsPage() {
 interface ProductFormData {
   name: string
   stock_type: 'piece' | 'weight'
+  track_inventory: boolean
   stock_on_hand: number
   price_per_unit: number
   price_per_half_kg: number | null
@@ -126,6 +130,7 @@ function ProductForm({
   const [form, setForm] = useState<ProductFormData>({
     name: product?.name ?? '',
     stock_type: product?.stock_type ?? 'piece',
+    track_inventory: product?.track_inventory ?? true,
     stock_on_hand: product?.stock_on_hand ?? 0,
     price_per_unit: product?.price_per_unit ?? 0,
     price_per_half_kg: product?.price_per_half_kg ?? null,
@@ -286,7 +291,7 @@ function ProductForm({
             placeholder="e.g. Dog Food"
           />
         </div>
-        <div className="flex items-end pb-1">
+        <div className="flex flex-col gap-2 justify-end pb-1">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -295,6 +300,15 @@ function ProductForm({
               className="w-5 h-5 rounded"
             />
             ⭐ Favorite
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.track_inventory}
+              onChange={e => setForm(f => ({ ...f, track_inventory: e.target.checked }))}
+              className="w-5 h-5 rounded"
+            />
+            📦 Track stock
           </label>
         </div>
       </div>
