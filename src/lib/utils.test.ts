@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Product, CartItem } from '../types'
+import type { Product } from '../types'
 import {
   calculateLineTotal,
   calculateStockDeduction,

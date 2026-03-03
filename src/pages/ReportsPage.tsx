@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { fetchSales } from '../lib/api'
 import type { Sale } from '../types'
 import { formatCurrency } from '../lib/utils'
@@ -9,11 +9,7 @@ export default function ReportsPage() {
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today')
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    loadSales()
-  }, [period])
-
-  const loadSales = async () => {
+  const loadSales = useCallback(async () => {
     setLoading(true)
     try {
       const now = new Date()
@@ -38,7 +34,11 @@ export default function ReportsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [period])
+
+  useEffect(() => {
+    loadSales()
+  }, [loadSales])
 
   const totalSales = sales.reduce((sum, s) => sum + s.total, 0)
   const totalTransactions = sales.length
