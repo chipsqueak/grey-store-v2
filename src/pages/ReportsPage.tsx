@@ -142,10 +142,9 @@ export default function ReportsPage() {
   }, {})
   const totalExpenses = expenses.reduce((sum, m) => sum + m.amount, 0)
 
-  const cashSalesTotal = paymentTotals['cash'] || 0
   const gcashTotal = paymentTotals['gcash'] || 0
   const bpiTotal = paymentTotals['bpi'] || 0
-  const allTimeSalesTotal = cashSalesTotal + gcashTotal + bpiTotal
+  const totalMoney = cashInHand + gcashTotal + bpiTotal
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-4">
@@ -298,73 +297,69 @@ export default function ReportsPage() {
           <div className="flex items-center justify-center h-24 text-gray-500 text-sm">Loading…</div>
         ) : (
           <>
-            {/* Cash in drawer */}
+            {/* Unified money snapshot */}
             <div className="bg-white rounded-xl p-4 shadow-sm border">
-              <h3 className="font-bold mb-3 text-sm">💵 Cash In Drawer</h3>
-              {bucket ? (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Bills</span>
-                    <span className="font-medium text-green-600">{formatCurrency(bucket.bills)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Coins</span>
-                    <span className="font-medium text-blue-600">{formatCurrency(bucket.coins)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold border-t pt-2">
-                    <span>Total Cash</span>
-                    <span>{formatCurrency(cashInHand)}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400">Cash bucket not initialized. Go to Cash page to set up.</p>
-              )}
-            </div>
-
-            {/* All-time sales by payment method */}
-            <div className="bg-white rounded-xl p-4 shadow-sm border">
-              <h3 className="font-bold mb-3 text-sm">📊 All-Time Sales by Payment Method</h3>
+              <h3 className="font-bold mb-3 text-sm">💰 My Money</h3>
               <div className="space-y-2">
+                {/* Cash in drawer */}
                 <div className="flex justify-between items-center text-sm">
-                  <span className="flex items-center gap-2"><span>💵</span><span>Cash Sales</span></span>
-                  <span className="font-medium text-green-600">{formatCurrency(cashSalesTotal)}</span>
+                  <span className="flex items-center gap-2"><span>💵</span><span>Cash in Drawer</span></span>
+                  {bucket ? (
+                    <span className="font-medium text-green-600">{formatCurrency(cashInHand)}</span>
+                  ) : (
+                    <span className="text-xs text-gray-400 italic">Not set up</span>
+                  )}
                 </div>
+                {bucket && (
+                  <>
+                    <div className="flex justify-between text-xs text-gray-400 pl-6">
+                      <span>Bills</span>
+                      <span>{formatCurrency(bucket.bills)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400 pl-6">
+                      <span>Coins</span>
+                      <span>{formatCurrency(bucket.coins)}</span>
+                    </div>
+                  </>
+                )}
+                {/* GCash */}
                 <div className="flex justify-between items-center text-sm">
                   <span className="flex items-center gap-2"><span>📱</span><span>GCash</span></span>
                   <span className="font-medium text-blue-600">{formatCurrency(gcashTotal)}</span>
                 </div>
+                {/* BPI / Bank */}
                 <div className="flex justify-between items-center text-sm">
-                  <span className="flex items-center gap-2"><span>🏦</span><span>BPI</span></span>
+                  <span className="flex items-center gap-2"><span>🏦</span><span>BPI / Bank</span></span>
                   <span className="font-medium text-indigo-600">{formatCurrency(bpiTotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold border-t pt-2">
-                  <span>Total Revenue</span>
-                  <span>{formatCurrency(allTimeSalesTotal)}</span>
+                  <span>Total</span>
+                  <span>{formatCurrency(totalMoney)}</span>
+                </div>
+
+                {/* Expenses breakdown */}
+                <div className="border-t pt-2 mt-1">
+                  <div className="text-xs font-semibold text-gray-500 mb-2">💸 Expenses</div>
+                  {totalExpenses === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-1">No expenses recorded</p>
+                  ) : (
+                    <>
+                      {Object.entries(expenseByCategory)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([cat, amount]) => (
+                          <div key={cat} className="flex justify-between text-sm">
+                            <span className="text-gray-600">{cat}</span>
+                            <span className="font-medium text-red-600">{formatCurrency(amount)}</span>
+                          </div>
+                        ))}
+                      <div className="flex justify-between text-sm font-bold border-t pt-2">
+                        <span>Total Expenses</span>
+                        <span className="text-red-600">{formatCurrency(totalExpenses)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
-            </div>
-
-            {/* Expense breakdown */}
-            <div className="bg-white rounded-xl p-4 shadow-sm border">
-              <h3 className="font-bold mb-3 text-sm">💸 Expenses Breakdown</h3>
-              {totalExpenses === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-2">No expenses recorded</p>
-              ) : (
-                <div className="space-y-2">
-                  {Object.entries(expenseByCategory)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([cat, amount]) => (
-                      <div key={cat} className="flex justify-between text-sm">
-                        <span className="text-gray-600">{cat}</span>
-                        <span className="font-medium text-red-600">{formatCurrency(amount)}</span>
-                      </div>
-                    ))}
-                  <div className="flex justify-between text-sm font-bold border-t pt-2">
-                    <span>Total Expenses</span>
-                    <span className="text-red-600">{formatCurrency(totalExpenses)}</span>
-                  </div>
-                </div>
-              )}
             </div>
           </>
         )}
