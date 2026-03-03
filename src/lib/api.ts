@@ -393,6 +393,18 @@ export async function fetchDailyCloses(): Promise<DailyClose[]> {
 
 // ─── Reports ─────────────────────────────────────────────────────────────────
 
+export async function fetchPaymentMethodTotals(): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from('sales')
+    .select('payment_method, total')
+  if (error) throw error
+  const totals: Record<string, number> = {}
+  for (const sale of (data ?? [])) {
+    totals[sale.payment_method] = (totals[sale.payment_method] || 0) + sale.total
+  }
+  return totals
+}
+
 export async function fetchDailySalesTotal(date: string): Promise<number> {
   const startOfDay = `${date}T00:00:00`
   const endOfDay = `${date}T23:59:59`
