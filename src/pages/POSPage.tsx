@@ -4,15 +4,31 @@ import type { Product, CartItem } from '../types'
 import { fetchProducts } from '../lib/api'
 import { calculateLineTotal, calculateStockDeduction, fuzzyMatch, formatCurrency, getUnitLabel } from '../lib/utils'
 
+const CART_STORAGE_KEY = 'grey-store-cart'
+
+function loadCartFromStorage(): CartItem[] {
+  try {
+    const raw = localStorage.getItem(CART_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as CartItem[]) : []
+  } catch {
+    return []
+  }
+}
+
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([])
-  const [cart, setCart] = useState<CartItem[]>([])
+  const [cart, setCart] = useState<CartItem[]>(loadCartFromStorage)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
+
+  // Persist cart to localStorage on every change
+  useEffect(() => {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart))
+  }, [cart])
 
   const loadProducts = useCallback(async () => {
     try {
@@ -35,6 +51,7 @@ export default function POSPage() {
     if (state?.successMessage) {
       setSuccess(state.successMessage)
       setCart([])
+      localStorage.removeItem(CART_STORAGE_KEY)
       // Clear location state so it doesn't re-show on refresh
       navigate('/', { replace: true, state: {} })
       loadProducts()

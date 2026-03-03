@@ -173,16 +173,16 @@ export default function CheckoutPage() {
 
         {/* Tendered + change (cash only) */}
         {paymentMethod === 'cash' && (
-          <div className="flex gap-3">
-            <div className="flex-1 text-center bg-gray-50 rounded-xl py-2 px-3">
-              <p className="text-xs text-gray-500 mb-0.5">Tendered</p>
-              <p className={`text-2xl font-bold ${isUnderpaid ? 'text-red-500' : 'text-gray-800'}`}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between bg-gray-50 rounded-xl py-2 px-3">
+              <p className="text-xs text-gray-500 font-medium">Tendered</p>
+              <p className={`text-lg font-semibold ${isUnderpaid ? 'text-red-500' : 'text-gray-700'}`}>
                 {formatCurrency(tendered)}
               </p>
             </div>
-            <div className="flex-1 text-center bg-green-50 rounded-xl py-2 px-3">
-              <p className="text-xs text-gray-500 mb-0.5">Change</p>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(change)}</p>
+            <div className="bg-green-50 rounded-xl py-3 px-3 text-center">
+              <p className="text-xs text-gray-500 font-medium mb-1">Change</p>
+              <p className="text-4xl font-extrabold text-green-600 leading-none">{formatCurrency(change)}</p>
             </div>
           </div>
         )}
