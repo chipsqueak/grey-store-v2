@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
+import { InventorySettingsProvider, useInventorySettings } from './hooks/useInventorySettings'
 import AppLayout from './components/layout/AppLayout'
 import LoginPage from './pages/LoginPage'
 import POSPage from './pages/POSPage'
@@ -12,6 +13,7 @@ import SettingsPage from './pages/SettingsPage'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
+  const { inventoryEnabled } = useInventorySettings()
 
   if (loading) {
     return (
@@ -29,7 +31,7 @@ function ProtectedRoutes() {
         <Route index element={<POSPage />} />
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="products" element={<ProductsPage />} />
-        <Route path="inventory" element={<InventoryPage />} />
+        <Route path="inventory" element={inventoryEnabled ? <InventoryPage /> : <Navigate to="/" replace />} />
         <Route path="cash" element={<CashPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -64,7 +66,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <InventorySettingsProvider>
+          <AppRoutes />
+        </InventorySettingsProvider>
       </AuthProvider>
     </BrowserRouter>
   )

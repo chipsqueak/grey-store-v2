@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { Product, Category } from '../types'
 import { fetchProducts, createProduct, updateProduct, fetchCategories } from '../lib/api'
 import { formatCurrency } from '../lib/utils'
+import { useInventorySettings } from '../hooks/useInventorySettings'
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -10,6 +11,7 @@ export default function ProductsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [error, setError] = useState('')
+  const { inventoryEnabled } = useInventorySettings()
 
   useEffect(() => {
     loadData()
@@ -64,6 +66,7 @@ export default function ProductsPage() {
           categories={categories}
           onSave={handleSave}
           onCancel={() => { setShowForm(false); setEditingProduct(null) }}
+          inventoryEnabled={inventoryEnabled}
         />
       )}
 
@@ -76,14 +79,15 @@ export default function ProductsPage() {
                   {product.is_favorite && <span>⭐</span>}
                   {product.name}
                   <span className="text-xs font-normal text-gray-400 ml-1">
-                    ({product.stock_type}{!product.track_inventory ? ', untracked' : ''})
+                    ({product.stock_type}{inventoryEnabled && !product.track_inventory ? ', untracked' : ''})
                   </span>
                 </h3>
                 <p className="text-sm text-gray-500">
-                  {product.track_inventory
-                    ? <>Stock: {product.stock_on_hand}{product.stock_type === 'weight' ? 'kg' : 'pcs'}{' · '}</>
-                    : <><span className="text-blue-500">∞ Unlimited</span>{' · '}</>
-                  }
+                  {inventoryEnabled && (
+                    product.track_inventory
+                      ? <>{`Stock: ${product.stock_on_hand}${product.stock_type === 'weight' ? 'kg' : 'pcs'}`}{' · '}</>
+                      : <><span className="text-blue-500">∞ Unlimited</span>{' · '}</>
+                  )}
                   Price: {formatCurrency(product.price_per_unit)}{product.stock_type === 'weight' ? '/kg' : '/pc'}
                 </p>
                 {product.stock_type === 'weight' && product.sack_size_kg && (
@@ -141,11 +145,13 @@ function ProductForm({
   categories,
   onSave,
   onCancel,
+  inventoryEnabled,
 }: {
   product: Product | null
   categories: Category[]
   onSave: (data: ProductFormData) => Promise<void>
   onCancel: () => void
+  inventoryEnabled: boolean
 }) {
   const [form, setForm] = useState<ProductFormData>({
     name: product?.name ?? '',
@@ -226,18 +232,20 @@ function ProductForm({
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
-          <input
-            type="number"
-            step={form.stock_type === 'weight' ? '0.01' : '1'}
-            min="0"
-            value={form.stock_on_hand}
-            onChange={e => setForm(f => ({ ...f, stock_on_hand: Number(e.target.value) }))}
-            className="w-full border rounded-lg px-3 py-2 text-base outline-none focus:ring-2 focus:ring-primary"
-            required
-          />
-        </div>
+        {inventoryEnabled && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
+            <input
+              type="number"
+              step={form.stock_type === 'weight' ? '0.01' : '1'}
+              min="0"
+              value={form.stock_on_hand}
+              onChange={e => setForm(f => ({ ...f, stock_on_hand: Number(e.target.value) }))}
+              className="w-full border rounded-lg px-3 py-2 text-base outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
+          </div>
+        )}
       </div>
 
       {form.stock_type === 'weight' && (
@@ -285,17 +293,19 @@ function ProductForm({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Threshold</label>
-          <input
-            type="number"
-            step={form.stock_type === 'weight' ? '0.1' : '1'}
-            min="0"
-            value={form.low_stock_threshold}
-            onChange={e => setForm(f => ({ ...f, low_stock_threshold: Number(e.target.value) }))}
-            className="w-full border rounded-lg px-3 py-2 text-base outline-none focus:ring-2 focus:ring-primary"
-          />
-        </div>
+        {inventoryEnabled && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Threshold</label>
+            <input
+              type="number"
+              step={form.stock_type === 'weight' ? '0.1' : '1'}
+              min="0"
+              value={form.low_stock_threshold}
+              onChange={e => setForm(f => ({ ...f, low_stock_threshold: Number(e.target.value) }))}
+              className="w-full border rounded-lg px-3 py-2 text-base outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Cost per Unit (₱)</label>
           <input
@@ -349,15 +359,17 @@ function ProductForm({
           />
           ⭐ Favorite
         </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.track_inventory}
-            onChange={e => setForm(f => ({ ...f, track_inventory: e.target.checked }))}
-            className="w-5 h-5 rounded"
-          />
-          📦 Track stock
-        </label>
+        {inventoryEnabled && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.track_inventory}
+              onChange={e => setForm(f => ({ ...f, track_inventory: e.target.checked }))}
+              className="w-5 h-5 rounded"
+            />
+            📦 Track stock
+          </label>
+        )}
       </div>
 
       <div className="flex gap-2 pt-2">
