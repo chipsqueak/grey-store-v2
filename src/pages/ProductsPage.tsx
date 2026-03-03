@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { Product, Category } from '../types'
-import { fetchProducts, createProduct, updateProduct, fetchCategories } from '../lib/api'
+import { fetchProducts, createProduct, updateProduct, fetchCategories, createProductVariant, updateProductVariant, deleteProductVariant } from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 import { useInventorySettings } from '../hooks/useInventorySettings'
 
@@ -29,13 +29,42 @@ export default function ProductsPage() {
     }
   }
 
-  const handleSave = async (data: ProductFormData) => {
+  const handleSave = async (data: ProductFormData, variants: VariantDraft[]) => {
     try {
+      let productId: string
       if (editingProduct) {
         await updateProduct(editingProduct.id, data)
+        productId = editingProduct.id
       } else {
-        await createProduct(data as Omit<Product, 'id' | 'created_at' | 'updated_at'>)
+        const created = await createProduct({ ...data, variants: [] } as Omit<Product, 'id' | 'created_at' | 'updated_at'>)
+        productId = created.id
       }
+
+      // Sync variants: delete removed, create/update new ones
+      const existingVariants = editingProduct?.variants ?? []
+      const keptIds = new Set(variants.filter(v => v.id).map(v => v.id as string))
+      for (const ev of existingVariants) {
+        if (!keptIds.has(ev.id)) {
+          await deleteProductVariant(ev.id)
+        }
+      }
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i]
+        const payload = {
+          product_id: productId,
+          name: v.name,
+          price: v.price,
+          cost: v.cost,
+          weight_kg: v.weight_kg,
+          sort_order: i,
+        }
+        if (v.id) {
+          await updateProductVariant(v.id, payload)
+        } else {
+          await createProductVariant(payload)
+        }
+      }
+
       setShowForm(false)
       setEditingProduct(null)
       await loadData()
@@ -109,6 +138,15 @@ export default function ProductsPage() {
                     })}
                   </div>
                 )}
+                {product.variants.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {product.variants.map(v => (
+                      <span key={v.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                        {v.name}: {formatCurrency(v.price)}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => { setEditingProduct(product); setShowForm(true) }}
@@ -140,6 +178,21 @@ interface ProductFormData {
   is_favorite: boolean
 }
 
+// A variant draft in the form (may or may not have an id yet)
+interface VariantDraft {
+  id?: string
+  name: string
+  price: number
+  cost: number | null
+  weight_kg: number | null
+}
+
+const SACK_FRACTIONS = [
+  { label: '1/4 Sack', value: 0.25 },
+  { label: '1/2 Sack', value: 0.5 },
+  { label: '3/4 Sack', value: 0.75 },
+]
+
 function ProductForm({
   product,
   categories,
@@ -149,7 +202,7 @@ function ProductForm({
 }: {
   product: Product | null
   categories: Category[]
-  onSave: (data: ProductFormData) => Promise<void>
+  onSave: (data: ProductFormData, variants: VariantDraft[]) => Promise<void>
   onCancel: () => void
   inventoryEnabled: boolean
 }) {
@@ -168,6 +221,10 @@ function ProductForm({
     category_ids: product?.category_ids ?? [],
     is_favorite: product?.is_favorite ?? false,
   })
+  const [variants, setVariants] = useState<VariantDraft[]>(
+    product?.variants.map(v => ({ id: v.id, name: v.name, price: v.price, cost: v.cost, weight_kg: v.weight_kg })) ?? []
+  )
+  const [newVariant, setNewVariant] = useState<VariantDraft>({ name: '', price: 0, cost: null, weight_kg: null })
   const [saving, setSaving] = useState(false)
 
   const toggleCategory = (id: string) => {
@@ -179,11 +236,33 @@ function ProductForm({
     }))
   }
 
+  // Auto-fill new variant price/cost/weight from sack fraction
+  const applyFraction = (fraction: number) => {
+    const sackKg = form.sack_size_kg ?? 0
+    const basePrice = form.sack_price ?? form.price_per_unit * sackKg
+    const weightKg = Math.round(sackKg * fraction * 1000) / 1000
+    const price = Math.round(basePrice * fraction * 100) / 100
+    const cost = form.cost_per_unit != null
+      ? Math.round(form.cost_per_unit * weightKg * 100) / 100
+      : null
+    setNewVariant(v => ({ ...v, weight_kg: weightKg, price, cost }))
+  }
+
+  const addVariant = () => {
+    if (!newVariant.name.trim()) return
+    setVariants(prev => [...prev, { ...newVariant, name: newVariant.name.trim() }])
+    setNewVariant({ name: '', price: 0, cost: null, weight_kg: null })
+  }
+
+  const removeVariant = (idx: number) => {
+    setVariants(prev => prev.filter((_, i) => i !== idx))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      await onSave(form)
+      await onSave(form, variants)
     } finally {
       setSaving(false)
     }
@@ -370,6 +449,109 @@ function ProductForm({
             📦 Track stock
           </label>
         )}
+      </div>
+
+      {/* ── Variants ─────────────────────────────────────────────────────── */}
+      <div className="border-t pt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-700">
+            🏷️ Variants
+            <span className="text-xs font-normal text-gray-400 ml-1">
+              ({form.stock_type === 'piece' ? 'e.g. Small, Medium, Large' : 'e.g. 1/4 Sack, 1/2 Sack'})
+            </span>
+          </h3>
+        </div>
+
+        {/* Existing variants */}
+        {variants.map((v, i) => (
+          <div key={i} className="flex items-center gap-2 bg-purple-50 rounded-lg px-3 py-2 text-sm">
+            <span className="font-medium flex-1">{v.name}</span>
+            <span className="text-gray-500">{formatCurrency(v.price)}</span>
+            {v.weight_kg != null && (
+              <span className="text-gray-400 text-xs">{v.weight_kg}kg</span>
+            )}
+            <button
+              type="button"
+              onClick={() => removeVariant(i)}
+              className="text-red-400 hover:text-red-600 ml-1 shrink-0"
+              aria-label="Remove variant"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+
+        {/* New variant row */}
+        <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-medium text-gray-500">Add variant</p>
+
+          {/* Quick fraction buttons for weight products with a sack */}
+          {form.stock_type === 'weight' && form.sack_size_kg != null && (
+            <div className="flex gap-2 flex-wrap">
+              {SACK_FRACTIONS.map(f => (
+                <button
+                  key={f.label}
+                  type="button"
+                  onClick={() => {
+                    applyFraction(f.value)
+                    setNewVariant(v => ({ ...v, name: v.name || f.label }))
+                  }}
+                  className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="text"
+              placeholder="Name (e.g. Small)"
+              value={newVariant.name}
+              onChange={e => setNewVariant(v => ({ ...v, name: e.target.value }))}
+              className="border rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+            />
+            <input
+              type="number"
+              placeholder="Price (₱)"
+              step="0.01"
+              min="0"
+              value={newVariant.price || ''}
+              onChange={e => setNewVariant(v => ({ ...v, price: Number(e.target.value) }))}
+              className="border rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+            />
+            <input
+              type="number"
+              placeholder="Cost (₱, optional)"
+              step="0.01"
+              min="0"
+              value={newVariant.cost ?? ''}
+              onChange={e => setNewVariant(v => ({ ...v, cost: e.target.value ? Number(e.target.value) : null }))}
+              className="border rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+            />
+            {form.stock_type === 'weight' && (
+              <input
+                type="number"
+                placeholder="Weight (kg)"
+                step="0.001"
+                min="0"
+                value={newVariant.weight_kg ?? ''}
+                onChange={e => setNewVariant(v => ({ ...v, weight_kg: e.target.value ? Number(e.target.value) : null }))}
+                className="border rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+              />
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={addVariant}
+            disabled={!newVariant.name.trim() || newVariant.price <= 0}
+            className="w-full text-sm bg-purple-600 text-white py-1.5 rounded disabled:opacity-40 hover:bg-purple-700 transition"
+          >
+            + Add Variant
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2 pt-2">

@@ -73,7 +73,7 @@ export default function CheckoutPage() {
       if (inventoryEnabled) {
         for (const item of cart) {
           if (!item.product.track_inventory) continue
-          const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
+          const deduction = calculateStockDeduction(item.unit, item.quantity, item.product, item.variant)
           if (item.product.stock_on_hand < deduction) {
             throw new Error(`Insufficient stock for ${item.product.name}`)
           }
@@ -85,7 +85,7 @@ export default function CheckoutPage() {
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
-        unit: item.unit,
+        unit: item.unit === 'variant' ? (item.variant?.name ?? 'variant') : item.unit,
         unit_price: item.line_total / item.quantity,
         line_total: item.line_total,
       }))
@@ -96,7 +96,7 @@ export default function CheckoutPage() {
       if (inventoryEnabled) {
         for (const item of cart) {
           if (!item.product.track_inventory) continue
-          const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
+          const deduction = calculateStockDeduction(item.unit, item.quantity, item.product, item.variant)
           await updateProduct(item.product.id, {
             stock_on_hand: item.product.stock_on_hand - deduction,
           })
@@ -104,7 +104,7 @@ export default function CheckoutPage() {
             product_id: item.product.id,
             type: 'sale',
             qty_delta: -deduction,
-            notes: `Sale: ${item.quantity} ${getUnitLabel(item.unit)}`,
+            notes: `Sale: ${item.quantity} ${getUnitLabel(item.unit, item.variant)}`,
           })
         }
       }
@@ -255,7 +255,7 @@ export default function CheckoutPage() {
               <div key={i} className="flex items-center justify-between text-sm">
                 <span className="flex-1 truncate text-gray-700">
                   {item.product.name}
-                  <span className="text-gray-400 ml-1">×{item.quantity} {getUnitLabel(item.unit)}</span>
+                  <span className="text-gray-400 ml-1">×{item.quantity} {getUnitLabel(item.unit, item.variant)}</span>
                 </span>
                 <span className="font-medium ml-2 shrink-0">{formatCurrency(item.line_total)}</span>
               </div>

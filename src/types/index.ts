@@ -1,4 +1,21 @@
 /**
+ * ProductVariant type
+ * Represents a named size/weight variant for a product.
+ * - Piece products: use for S/M/L sizes (weight_kg is null; stock deduction is 1 piece)
+ * - Weight products: use for fractional amounts, e.g. 1/4 sack (weight_kg = kg to deduct)
+ */
+export interface ProductVariant {
+  id: string
+  product_id: string
+  name: string           // e.g. "Small", "1/4 Sack"
+  price: number          // selling price for this variant
+  cost: number | null    // optional cost
+  weight_kg: number | null  // kg deducted per unit (weight products only)
+  sort_order: number
+  created_at: string
+}
+
+/**
  * Category type for product categorization
  * Supports label, emoji icon, and Tailwind color class
  */
@@ -29,6 +46,7 @@ export interface Product {
   category: string | null;
   category_ids: string[];
   is_favorite: boolean;
+  variants: ProductVariant[];
   created_at: string;
   updated_at: string;
 }
@@ -40,8 +58,9 @@ export interface Product {
 export interface CartItem {
   product: Product;
   quantity: number;
-  unit: 'piece' | '0.5kg' | '1kg' | 'sack' | 'custom';
+  unit: 'piece' | '0.5kg' | '1kg' | 'sack' | 'custom' | 'variant';
   line_total: number;
+  variant?: ProductVariant;  // populated when unit === 'variant'
 }
 
 /**
