@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { Category } from '../types'
 import { fetchCategories, createCategory, updateCategory, deleteCategory } from '../lib/api'
+import { useInventorySettings } from '../hooks/useInventorySettings'
 
 const COLOR_OPTIONS = [
   { label: 'Gray',   value: 'bg-gray-100 text-gray-700',     swatch: '#6b7280' },
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const { inventoryEnabled, setInventoryEnabled } = useInventorySettings()
 
   useEffect(() => {
     loadCategories()
@@ -79,6 +81,34 @@ export default function SettingsPage() {
 
       {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg p-3">{error}</div>}
       {success && <div className="bg-green-50 text-green-600 text-sm rounded-lg p-3">{success}</div>}
+
+      {/* Inventory Toggle */}
+      <div className="bg-white rounded-xl shadow-sm border p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-base">📦 Inventory Management</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {inventoryEnabled
+                ? 'Inventory tracking is active. Stock levels are monitored and the Inventory page is visible.'
+                : 'Inventory is disabled. All products are treated as unlimited stock. The Inventory page is hidden.'}
+            </p>
+          </div>
+          <button
+            onClick={() => setInventoryEnabled(!inventoryEnabled)}
+            className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+              inventoryEnabled ? 'bg-primary' : 'bg-gray-300'
+            }`}
+            role="switch"
+            aria-checked={inventoryEnabled}
+          >
+            <span
+              className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${
+                inventoryEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
 
       {/* Category Management */}
       <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">

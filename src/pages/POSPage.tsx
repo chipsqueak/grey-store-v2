@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import type { Product, CartItem, Category } from '../types'
 import { fetchProducts, fetchCategories } from '../lib/api'
 import { calculateLineTotal, calculateStockDeduction, fuzzyMatch, formatCurrency, getUnitLabel } from '../lib/utils'
+import { useInventorySettings } from '../hooks/useInventorySettings'
 
 const CART_STORAGE_KEY = 'grey-store-cart'
 
@@ -26,6 +27,7 @@ export default function POSPage() {
   const [success, setSuccess] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
+  const { inventoryEnabled } = useInventorySettings()
 
   // Persist cart to localStorage on every change
   useEffect(() => {
@@ -95,7 +97,7 @@ export default function POSPage() {
         .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product), 0)
       const newDeduction = calculateStockDeduction(unit, 1, product)
 
-      if (product.track_inventory && product.stock_on_hand < existingDeduction + newDeduction) {
+      if (inventoryEnabled && product.track_inventory && product.stock_on_hand < existingDeduction + newDeduction) {
         setError(`Insufficient stock for ${product.name}. Available: ${product.stock_on_hand - existingDeduction} ${product.stock_type === 'weight' ? 'kg' : 'pcs'}`)
         setTimeout(() => setError(''), 3000)
         return prev
@@ -126,7 +128,7 @@ export default function POSPage() {
     }
     setCart(prev => prev.map((item, i) => {
       if (i !== index) return item
-      if (item.product.track_inventory) {
+      if (inventoryEnabled && item.product.track_inventory) {
         // Total cart deduction for this product excluding the current item
         const otherDeduction = prev
           .filter((other, oi) => oi !== index && other.product.id === item.product.id)
@@ -223,7 +225,7 @@ export default function POSPage() {
           <h2 className="text-sm font-semibold text-gray-500 mb-2">⭐ Favorites</h2>
           <div className="flex gap-2 overflow-x-auto pb-2">
             {favorites.map(p => (
-              <ProductQuickButton key={p.id} product={p} cartDeduction={getCartDeduction(p.id)} onAdd={addToCart} />
+              <ProductQuickButton key={p.id} product={p} cartDeduction={getCartDeduction(p.id)} onAdd={addToCart} inventoryEnabled={inventoryEnabled} />
             ))}
           </div>
         </div>
@@ -232,7 +234,7 @@ export default function POSPage() {
       {/* Product list */}
       <div className="space-y-2">
         {filteredProducts.map(product => (
-          <ProductCard key={product.id} product={product} categories={categories} cartDeduction={getCartDeduction(product.id)} onAdd={addToCart} />
+          <ProductCard key={product.id} product={product} categories={categories} cartDeduction={getCartDeduction(product.id)} onAdd={addToCart} inventoryEnabled={inventoryEnabled} />
         ))}
         {filteredProducts.length === 0 && (
           <p className="text-center text-gray-400 py-8">No products found</p>
@@ -288,15 +290,17 @@ export default function POSPage() {
   )
 }
 
-function ProductCard({ product, categories, cartDeduction, onAdd }: {
+function ProductCard({ product, categories, cartDeduction, onAdd, inventoryEnabled }: {
   product: Product
   categories: Category[]
   cartDeduction: number
   onAdd: (p: Product, u: CartItem['unit']) => void
+  inventoryEnabled: boolean
 }) {
-  const availableStock = product.track_inventory ? product.stock_on_hand - cartDeduction : Infinity
-  const isLowStock = product.track_inventory && product.stock_on_hand <= product.low_stock_threshold && product.stock_on_hand > 0
-  const isOutOfStock = product.track_inventory && availableStock <= 0
+  const trackStock = inventoryEnabled && product.track_inventory
+  const availableStock = trackStock ? product.stock_on_hand - cartDeduction : Infinity
+  const isLowStock = trackStock && product.stock_on_hand <= product.low_stock_threshold && product.stock_on_hand > 0
+  const isOutOfStock = trackStock && availableStock <= 0
 
   const productCategories = product.category_ids
     .map(id => categories.find(c => c.id === id))
@@ -308,7 +312,7 @@ function ProductCard({ product, categories, cartDeduction, onAdd }: {
         <div>
           <h3 className="font-semibold">{product.name}</h3>
           <p className="text-sm text-gray-500">
-            {product.track_inventory
+            {trackStock
               ? <>
                   Stock: {product.stock_on_hand}{product.stock_type === 'weight' ? 'kg' : 'pcs'}
                   {isLowStock && !isOutOfStock && <span className="text-warning ml-1">⚠️ Low</span>}
@@ -347,14 +351,14 @@ function ProductCard({ product, categories, cartDeduction, onAdd }: {
           <>
             <button
               onClick={() => onAdd(product, '0.5kg')}
-              disabled={product.track_inventory && availableStock < 0.5}
+              disabled={trackStock && availableStock < 0.5}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
             >
               + 0.5kg
             </button>
             <button
               onClick={() => onAdd(product, '1kg')}
-              disabled={product.track_inventory && availableStock < 1}
+              disabled={trackStock && availableStock < 1}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
             >
               + 1kg
@@ -362,7 +366,7 @@ function ProductCard({ product, categories, cartDeduction, onAdd }: {
             {product.sack_size_kg && (
               <button
                 onClick={() => onAdd(product, 'sack')}
-                disabled={product.track_inventory && availableStock < product.sack_size_kg}
+                disabled={trackStock && availableStock < product.sack_size_kg}
                 className="bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
               >
                 + Sack ({product.sack_size_kg}kg)
@@ -375,14 +379,16 @@ function ProductCard({ product, categories, cartDeduction, onAdd }: {
   )
 }
 
-function ProductQuickButton({ product, cartDeduction, onAdd }: {
+function ProductQuickButton({ product, cartDeduction, onAdd, inventoryEnabled }: {
   product: Product
   cartDeduction: number
   onAdd: (p: Product, u: CartItem['unit']) => void
+  inventoryEnabled: boolean
 }) {
   const defaultUnit = product.stock_type === 'piece' ? 'piece' : '1kg' as CartItem['unit']
-  const availableStock = product.track_inventory ? product.stock_on_hand - cartDeduction : Infinity
-  const isDisabled = product.track_inventory && availableStock <= 0
+  const trackStock = inventoryEnabled && product.track_inventory
+  const availableStock = trackStock ? product.stock_on_hand - cartDeduction : Infinity
+  const isDisabled = trackStock && availableStock <= 0
   return (
     <button
       onClick={() => onAdd(product, defaultUnit)}

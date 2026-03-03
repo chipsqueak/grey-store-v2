@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import { useInventorySettings } from '../../hooks/useInventorySettings'
 
-const navItems = [
+const allNavItems = [
   { to: '/reports', icon: '📊', label: 'Reports' },
   { to: '/', icon: '🛒', label: 'POS' },
   { to: '/cash', icon: '💰', label: 'Cash' },
@@ -10,8 +11,13 @@ const navItems = [
   { to: '/settings', icon: '⚙️', label: 'Settings' },
 ]
 
+const inventoryRoutes = new Set(['/inventory'])
+
 export default function AppLayout() {
   const { signOut, user } = useAuth()
+  const { inventoryEnabled } = useInventorySettings()
+
+  const navItems = allNavItems.filter(item => inventoryEnabled || !inventoryRoutes.has(item.to))
 
   return (
     <div className="flex flex-col h-full bg-gray-50">

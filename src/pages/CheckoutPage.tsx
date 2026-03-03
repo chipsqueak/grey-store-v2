@@ -10,6 +10,7 @@ import {
   createCashMovement,
 } from '../lib/api'
 import { calculateStockDeduction, formatCurrency, getUnitLabel } from '../lib/utils'
+import { useInventorySettings } from '../hooks/useInventorySettings'
 
 type PaymentMethod = Sale['payment_method']
 
@@ -18,6 +19,7 @@ const DENOMINATIONS = [10, 20, 50, 100, 200, 500, 1000]
 export default function CheckoutPage() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { inventoryEnabled } = useInventorySettings()
 
   const { cart, cartTotal } = (location.state ?? {}) as {
     cart: CartItem[]
@@ -67,12 +69,14 @@ export default function CheckoutPage() {
     setError('')
 
     try {
-      // Verify stock for tracked items
-      for (const item of cart) {
-        if (!item.product.track_inventory) continue
-        const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
-        if (item.product.stock_on_hand < deduction) {
-          throw new Error(`Insufficient stock for ${item.product.name}`)
+      // Verify stock for tracked items (only when inventory is enabled)
+      if (inventoryEnabled) {
+        for (const item of cart) {
+          if (!item.product.track_inventory) continue
+          const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
+          if (item.product.stock_on_hand < deduction) {
+            throw new Error(`Insufficient stock for ${item.product.name}`)
+          }
         }
       }
 
@@ -88,19 +92,21 @@ export default function CheckoutPage() {
 
       await createSale(saleItems, cartTotal, paymentMethod, notes || null)
 
-      // Deduct stock and create inventory movements (tracked products only)
-      for (const item of cart) {
-        if (!item.product.track_inventory) continue
-        const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
-        await updateProduct(item.product.id, {
-          stock_on_hand: item.product.stock_on_hand - deduction,
-        })
-        await createInventoryMovement({
-          product_id: item.product.id,
-          type: 'sale',
-          qty_delta: -deduction,
-          notes: `Sale: ${item.quantity} ${getUnitLabel(item.unit)}`,
-        })
+      // Deduct stock and create inventory movements (tracked products only, when inventory is enabled)
+      if (inventoryEnabled) {
+        for (const item of cart) {
+          if (!item.product.track_inventory) continue
+          const deduction = calculateStockDeduction(item.unit, item.quantity, item.product)
+          await updateProduct(item.product.id, {
+            stock_on_hand: item.product.stock_on_hand - deduction,
+          })
+          await createInventoryMovement({
+            product_id: item.product.id,
+            type: 'sale',
+            qty_delta: -deduction,
+            notes: `Sale: ${item.quantity} ${getUnitLabel(item.unit)}`,
+          })
+        }
       }
 
       // Update cash bucket for cash sales
