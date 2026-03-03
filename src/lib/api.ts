@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Product, Sale, SaleItem, InventoryMovement, CashBucket, CashMovement, DailyClose, Category } from '../types'
+import type { Product, Sale, SaleItem, InventoryMovement, CashBucket, CashMovement, DailyClose, Category, ProductVariant } from '../types'
 
 // ─── App Settings ─────────────────────────────────────────────────────────────
 
@@ -64,41 +64,86 @@ export async function deleteCategory(id: string): Promise<void> {
 export async function fetchProducts(): Promise<Product[]> {
   const { data, error } = await supabase
     .from('products')
-    .select('*')
+    .select('*, product_variants(*)')
     .order('name')
   if (error) throw error
-  return data ?? []
+  return (data ?? []).map(p => ({
+    ...p,
+    variants: (p.product_variants ?? []).sort((a: ProductVariant, b: ProductVariant) => a.sort_order - b.sort_order),
+  }))
 }
 
 export async function fetchProduct(id: string): Promise<Product | null> {
   const { data, error } = await supabase
     .from('products')
-    .select('*')
+    .select('*, product_variants(*)')
     .eq('id', id)
     .single()
   if (error) throw error
-  return data
+  if (!data) return null
+  return {
+    ...data,
+    variants: (data.product_variants ?? []).sort((a: ProductVariant, b: ProductVariant) => a.sort_order - b.sort_order),
+  }
 }
 
 export async function createProduct(product: Omit<Product, 'id' | 'created_at' | 'updated_at'>): Promise<Product> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { variants: _variants, ...productData } = product
   const { data, error } = await supabase
     .from('products')
-    .insert(product)
+    .insert(productData)
+    .select()
+    .single()
+  if (error) throw error
+  return { ...data, variants: [] }
+}
+
+export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product> {
+  const { error } = await supabase
+    .from('products')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  const updated = await fetchProduct(id)
+  if (!updated) throw new Error('Product not found after update')
+  return updated
+}
+
+// ─── Product Variants ────────────────────────────────────────────────────────
+
+export async function createProductVariant(
+  variant: Omit<ProductVariant, 'id' | 'created_at'>
+): Promise<ProductVariant> {
+  const { data, error } = await supabase
+    .from('product_variants')
+    .insert(variant)
     .select()
     .single()
   if (error) throw error
   return data
 }
 
-export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product> {
+export async function updateProductVariant(
+  id: string,
+  updates: Partial<Omit<ProductVariant, 'id' | 'created_at'>>
+): Promise<ProductVariant> {
   const { data, error } = await supabase
-    .from('products')
-    .update({ ...updates, updated_at: new Date().toISOString() })
+    .from('product_variants')
+    .update(updates)
     .eq('id', id)
     .select()
     .single()
   if (error) throw error
   return data
+}
+
+export async function deleteProductVariant(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('product_variants')
+    .delete()
+    .eq('id', id)
+  if (error) throw error
 }
 
 // ─── Sales ───────────────────────────────────────────────────────────────────

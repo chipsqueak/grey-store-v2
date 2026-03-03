@@ -1,6 +1,6 @@
-import type { Product, CartItem } from '../types'
+import type { Product, CartItem, ProductVariant } from '../types'
 
-export function calculateLineTotal(product: Product, unit: CartItem['unit'], quantity: number): number {
+export function calculateLineTotal(product: Product, unit: CartItem['unit'], quantity: number, variant?: ProductVariant): number {
   switch (unit) {
     case 'piece':
       return product.price_per_unit * quantity
@@ -12,12 +12,14 @@ export function calculateLineTotal(product: Product, unit: CartItem['unit'], qua
       return (product.sack_price ?? product.price_per_unit * (product.sack_size_kg ?? 1)) * quantity
     case 'custom':
       return product.price_per_unit * quantity
+    case 'variant':
+      return (variant?.price ?? product.price_per_unit) * quantity
     default:
       return 0
   }
 }
 
-export function calculateStockDeduction(unit: CartItem['unit'], quantity: number, product: Product): number {
+export function calculateStockDeduction(unit: CartItem['unit'], quantity: number, product: Product, variant?: ProductVariant): number {
   switch (unit) {
     case 'piece':
       return quantity
@@ -29,24 +31,30 @@ export function calculateStockDeduction(unit: CartItem['unit'], quantity: number
       return (product.sack_size_kg ?? 1) * quantity
     case 'custom':
       return quantity
+    case 'variant':
+      if (product.stock_type === 'weight') {
+        return (variant?.weight_kg ?? 1) * quantity
+      }
+      return quantity  // piece product: 1 piece per variant unit
     default:
       return 0
   }
 }
 
-export function hasEnoughStock(product: Product, unit: CartItem['unit'], quantity: number): boolean {
+export function hasEnoughStock(product: Product, unit: CartItem['unit'], quantity: number, variant?: ProductVariant): boolean {
   if (!product.track_inventory) return true
-  const deduction = calculateStockDeduction(unit, quantity, product)
+  const deduction = calculateStockDeduction(unit, quantity, product, variant)
   return product.stock_on_hand >= deduction
 }
 
-export function getUnitLabel(unit: CartItem['unit']): string {
+export function getUnitLabel(unit: CartItem['unit'], variant?: ProductVariant): string {
   switch (unit) {
     case 'piece': return 'pc'
     case '0.5kg': return '0.5kg'
     case '1kg': return '1kg'
     case 'sack': return 'sack'
     case 'custom': return 'kg'
+    case 'variant': return variant?.name ?? 'variant'
     default: return unit
   }
 }

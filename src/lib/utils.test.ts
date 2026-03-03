@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Product } from '../types'
+import type { Product, ProductVariant } from '../types'
 import {
   calculateLineTotal,
   calculateStockDeduction,
@@ -24,6 +24,7 @@ const weightProduct: Product = {
   cost_per_unit: 80,
   category: 'Dog Food',
   category_ids: [],
+  variants: [],
   is_favorite: true,
   created_at: '',
   updated_at: '',
@@ -43,9 +44,32 @@ const pieceProduct: Product = {
   cost_per_unit: 30,
   category: 'Canned Goods',
   category_ids: [],
+  variants: [],
   is_favorite: false,
   created_at: '',
   updated_at: '',
+}
+
+const quarterSackVariant: ProductVariant = {
+  id: 'v1',
+  product_id: '1',
+  name: '1/4 Sack',
+  price: 625, // 2400 / 4 = 600, but user can override
+  cost: 500,
+  weight_kg: 6.25, // 25 * 0.25
+  sort_order: 0,
+  created_at: '',
+}
+
+const sizeSmallVariant: ProductVariant = {
+  id: 'v2',
+  product_id: '2',
+  name: 'Small',
+  price: 35,
+  cost: 20,
+  weight_kg: null,
+  sort_order: 0,
+  created_at: '',
 }
 
 describe('calculateLineTotal', () => {
@@ -74,6 +98,18 @@ describe('calculateLineTotal', () => {
     const product = { ...weightProduct, sack_price: null }
     expect(calculateLineTotal(product, 'sack', 1)).toBe(2500) // 100 * 25
   })
+
+  it('calculates variant total using variant price', () => {
+    expect(calculateLineTotal(weightProduct, 'variant', 2, quarterSackVariant)).toBe(1250)
+  })
+
+  it('calculates piece variant total using variant price', () => {
+    expect(calculateLineTotal(pieceProduct, 'variant', 3, sizeSmallVariant)).toBe(105)
+  })
+
+  it('calculates variant total falling back to price_per_unit when no variant provided', () => {
+    expect(calculateLineTotal(weightProduct, 'variant', 1)).toBe(100)
+  })
 })
 
 describe('calculateStockDeduction', () => {
@@ -91,6 +127,18 @@ describe('calculateStockDeduction', () => {
 
   it('deducts sack correctly using sack_size_kg', () => {
     expect(calculateStockDeduction('sack', 1, weightProduct)).toBe(25)
+  })
+
+  it('deducts weight variant by weight_kg', () => {
+    expect(calculateStockDeduction('variant', 2, weightProduct, quarterSackVariant)).toBe(12.5)
+  })
+
+  it('deducts piece variant as 1 piece per unit', () => {
+    expect(calculateStockDeduction('variant', 3, pieceProduct, sizeSmallVariant)).toBe(3)
+  })
+
+  it('deducts weight variant falling back to 1kg when no variant provided', () => {
+    expect(calculateStockDeduction('variant', 2, weightProduct)).toBe(2)
   })
 })
 
@@ -126,6 +174,17 @@ describe('hasEnoughStock', () => {
     const untracked = { ...pieceProduct, track_inventory: false, stock_on_hand: 0 }
     expect(hasEnoughStock(untracked, 'piece', 999)).toBe(true)
   })
+
+  it('checks stock for weight variant using weight_kg', () => {
+    expect(hasEnoughStock(weightProduct, 'variant', 3, quarterSackVariant)).toBe(true) // 3 * 6.25 = 18.75 <= 25
+    expect(hasEnoughStock(weightProduct, 'variant', 4, quarterSackVariant)).toBe(true) // 4 * 6.25 = 25 == 25
+    expect(hasEnoughStock(weightProduct, 'variant', 5, quarterSackVariant)).toBe(false) // 5 * 6.25 = 31.25 > 25
+  })
+
+  it('checks stock for piece variant as 1 piece per unit', () => {
+    expect(hasEnoughStock(pieceProduct, 'variant', 20, sizeSmallVariant)).toBe(true)
+    expect(hasEnoughStock(pieceProduct, 'variant', 21, sizeSmallVariant)).toBe(false)
+  })
 })
 
 describe('getUnitLabel', () => {
@@ -135,6 +194,15 @@ describe('getUnitLabel', () => {
     expect(getUnitLabel('1kg')).toBe('1kg')
     expect(getUnitLabel('sack')).toBe('sack')
     expect(getUnitLabel('custom')).toBe('kg')
+  })
+
+  it('returns variant name for variant unit', () => {
+    expect(getUnitLabel('variant', quarterSackVariant)).toBe('1/4 Sack')
+    expect(getUnitLabel('variant', sizeSmallVariant)).toBe('Small')
+  })
+
+  it('returns fallback for variant unit without variant object', () => {
+    expect(getUnitLabel('variant')).toBe('variant')
   })
 })
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import type { Product, CartItem, Category } from '../types'
+import type { Product, CartItem, Category, ProductVariant } from '../types'
 import { fetchProducts, fetchCategories } from '../lib/api'
 import { calculateLineTotal, calculateStockDeduction, fuzzyMatch, formatCurrency, getUnitLabel } from '../lib/utils'
 import { useInventorySettings } from '../hooks/useInventorySettings'
@@ -85,17 +85,17 @@ export default function POSPage() {
   const getCartDeduction = useCallback((productId: string): number =>
     cart
       .filter(item => item.product.id === productId)
-      .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product), 0),
+      .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product, item.variant), 0),
     [cart]
   )
 
-  const addToCart = (product: Product, unit: CartItem['unit']) => {
+  const addToCart = (product: Product, unit: CartItem['unit'], variant?: ProductVariant) => {
     setCart(prev => {
       // Compute total cart deduction for this product (across all units)
       const existingDeduction = prev
         .filter(item => item.product.id === product.id)
-        .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product), 0)
-      const newDeduction = calculateStockDeduction(unit, 1, product)
+        .reduce((sum, item) => sum + calculateStockDeduction(item.unit, item.quantity, item.product, item.variant), 0)
+      const newDeduction = calculateStockDeduction(unit, 1, product, variant)
 
       if (inventoryEnabled && product.track_inventory && product.stock_on_hand < existingDeduction + newDeduction) {
         setError(`Insufficient stock for ${product.name}. Available: ${product.stock_on_hand - existingDeduction} ${product.stock_type === 'weight' ? 'kg' : 'pcs'}`)
@@ -103,11 +103,16 @@ export default function POSPage() {
         return prev
       }
 
-      const existing = prev.find(item => item.product.id === product.id && item.unit === unit)
+      // Match by product + unit + variant id (to group same variants together)
+      const existing = prev.find(item =>
+        item.product.id === product.id &&
+        item.unit === unit &&
+        (item.variant?.id ?? null) === (variant?.id ?? null)
+      )
       if (existing) {
         return prev.map(item =>
-          item.product.id === product.id && item.unit === unit
-            ? { ...item, quantity: item.quantity + 1, line_total: calculateLineTotal(product, unit, item.quantity + 1) }
+          item.product.id === product.id && item.unit === unit && (item.variant?.id ?? null) === (variant?.id ?? null)
+            ? { ...item, quantity: item.quantity + 1, line_total: calculateLineTotal(product, unit, item.quantity + 1, variant) }
             : item
         )
       }
@@ -115,7 +120,8 @@ export default function POSPage() {
         product,
         quantity: 1,
         unit,
-        line_total: calculateLineTotal(product, unit, 1),
+        variant,
+        line_total: calculateLineTotal(product, unit, 1, variant),
       }]
     })
     setError('')
@@ -132,15 +138,15 @@ export default function POSPage() {
         // Total cart deduction for this product excluding the current item
         const otherDeduction = prev
           .filter((other, oi) => oi !== index && other.product.id === item.product.id)
-          .reduce((sum, other) => sum + calculateStockDeduction(other.unit, other.quantity, other.product), 0)
-        const newDeduction = calculateStockDeduction(item.unit, qty, item.product)
+          .reduce((sum, other) => sum + calculateStockDeduction(other.unit, other.quantity, other.product, other.variant), 0)
+        const newDeduction = calculateStockDeduction(item.unit, qty, item.product, item.variant)
         if (item.product.stock_on_hand < otherDeduction + newDeduction) {
           setError(`Insufficient stock for ${item.product.name}`)
           setTimeout(() => setError(''), 3000)
           return item
         }
       }
-      return { ...item, quantity: qty, line_total: calculateLineTotal(item.product, item.unit, qty) }
+      return { ...item, quantity: qty, line_total: calculateLineTotal(item.product, item.unit, qty, item.variant) }
     }))
   }
 
@@ -255,7 +261,7 @@ export default function POSPage() {
                 <div key={i} className="flex items-center justify-between text-sm">
                   <div className="flex-1 min-w-0">
                     <span className="font-medium truncate">{item.product.name}</span>
-                    <span className="text-gray-500 ml-1">({getUnitLabel(item.unit)})</span>
+                    <span className="text-gray-500 ml-1">({getUnitLabel(item.unit, item.variant)})</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
@@ -294,7 +300,7 @@ function ProductCard({ product, categories, cartDeduction, onAdd, inventoryEnabl
   product: Product
   categories: Category[]
   cartDeduction: number
-  onAdd: (p: Product, u: CartItem['unit']) => void
+  onAdd: (p: Product, u: CartItem['unit'], variant?: ProductVariant) => void
   inventoryEnabled: boolean
 }) {
   const trackStock = inventoryEnabled && product.track_inventory
@@ -338,7 +344,7 @@ function ProductCard({ product, categories, cartDeduction, onAdd, inventoryEnabl
       )}
 
       <div className="flex gap-2 flex-wrap">
-        {product.stock_type === 'piece' && (
+        {product.stock_type === 'piece' && product.variants.length === 0 && (
           <button
             onClick={() => onAdd(product, 'piece')}
             disabled={isOutOfStock}
@@ -374,6 +380,23 @@ function ProductCard({ product, categories, cartDeduction, onAdd, inventoryEnabl
             )}
           </>
         )}
+        {/* Variant buttons */}
+        {product.variants.map(variant => {
+          const variantDeduction = product.stock_type === 'weight'
+            ? (variant.weight_kg ?? 1)
+            : 1
+          const isVariantDisabled = trackStock && availableStock < variantDeduction
+          return (
+            <button
+              key={variant.id}
+              onClick={() => onAdd(product, 'variant', variant)}
+              disabled={isVariantDisabled}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition"
+            >
+              + {variant.name} ({formatCurrency(variant.price)})
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -382,7 +405,7 @@ function ProductCard({ product, categories, cartDeduction, onAdd, inventoryEnabl
 function ProductQuickButton({ product, cartDeduction, onAdd, inventoryEnabled }: {
   product: Product
   cartDeduction: number
-  onAdd: (p: Product, u: CartItem['unit']) => void
+  onAdd: (p: Product, u: CartItem['unit'], variant?: ProductVariant) => void
   inventoryEnabled: boolean
 }) {
   const defaultUnit = product.stock_type === 'piece' ? 'piece' : '1kg' as CartItem['unit']
