@@ -6,6 +6,7 @@ export interface Product {
   id: string;
   name: string;
   stock_type: 'piece' | 'weight';
+  track_inventory: boolean;
   stock_on_hand: number;
   price_per_unit: number;
   price_per_half_kg: number | null;

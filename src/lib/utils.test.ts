@@ -7,12 +7,14 @@ import {
   getUnitLabel,
   formatCurrency,
   formatWeight,
+  fuzzyMatch,
 } from './utils'
 
 const weightProduct: Product = {
   id: '1',
   name: 'Dog Food Premium',
   stock_type: 'weight',
+  track_inventory: true,
   stock_on_hand: 25,
   price_per_unit: 100, // ₱100/kg
   price_per_half_kg: 55, // ₱55 per 0.5kg
@@ -30,6 +32,7 @@ const pieceProduct: Product = {
   id: '2',
   name: 'Canned Tuna',
   stock_type: 'piece',
+  track_inventory: true,
   stock_on_hand: 20,
   price_per_unit: 45,
   price_per_half_kg: null,
@@ -116,6 +119,11 @@ describe('hasEnoughStock', () => {
     const empty = { ...pieceProduct, stock_on_hand: 0 }
     expect(hasEnoughStock(empty, 'piece', 1)).toBe(false)
   })
+
+  it('always returns true when track_inventory is false', () => {
+    const untracked = { ...pieceProduct, track_inventory: false, stock_on_hand: 0 }
+    expect(hasEnoughStock(untracked, 'piece', 999)).toBe(true)
+  })
 })
 
 describe('getUnitLabel', () => {
@@ -144,5 +152,37 @@ describe('formatWeight', () => {
 
   it('formats sub-kg as grams', () => {
     expect(formatWeight(0.5)).toBe('500g')
+  })
+})
+
+describe('fuzzyMatch', () => {
+  it('returns true for empty query', () => {
+    expect(fuzzyMatch('Canned Tuna', '')).toBe(true)
+    expect(fuzzyMatch('Canned Tuna', '   ')).toBe(true)
+  })
+
+  it('matches exact substring', () => {
+    expect(fuzzyMatch('Canned Tuna', 'tuna')).toBe(true)
+    expect(fuzzyMatch('Dog Food Premium', 'dog food')).toBe(true)
+  })
+
+  it('matches scrambled word letters (anagram)', () => {
+    expect(fuzzyMatch('Dog Food', 'dgo')).toBe(true)   // dgo = dog scrambled
+    expect(fuzzyMatch('Canned Tuna', 'unat')).toBe(true) // unat = tuna scrambled
+  })
+
+  it('matches word order scrambled (rearranged words)', () => {
+    expect(fuzzyMatch('Canned Tuna', 'tuna canned')).toBe(true)
+    expect(fuzzyMatch('Dog Food Premium', 'premium dog')).toBe(true)
+  })
+
+  it('matches via subsequence (characters in order)', () => {
+    expect(fuzzyMatch('Dog Food', 'df')).toBe(true)  // d...f in "dog food"
+    expect(fuzzyMatch('Canned Tuna', 'ctn')).toBe(true) // c...t...n
+  })
+
+  it('returns false for completely unrelated query', () => {
+    expect(fuzzyMatch('Canned Tuna', 'xyz')).toBe(false)
+    expect(fuzzyMatch('Dog Food', 'qqq')).toBe(false)
   })
 })

@@ -35,6 +35,7 @@ export function calculateStockDeduction(unit: CartItem['unit'], quantity: number
 }
 
 export function hasEnoughStock(product: Product, unit: CartItem['unit'], quantity: number): boolean {
+  if (!product.track_inventory) return true
   const deduction = calculateStockDeduction(unit, quantity, product)
   return product.stock_on_hand >= deduction
 }
@@ -57,4 +58,37 @@ export function formatCurrency(amount: number): string {
 export function formatWeight(kg: number): string {
   if (kg >= 1) return `${kg}kg`
   return `${(kg * 1000).toFixed(0)}g`
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  let ni = 0
+  for (let hi = 0; hi < haystack.length && ni < needle.length; hi++) {
+    if (needle[ni] === haystack[hi]) ni++
+  }
+  return ni === needle.length
+}
+
+export function fuzzyMatch(target: string, query: string): boolean {
+  if (!query.trim()) return true
+  const t = target.toLowerCase()
+  const q = query.toLowerCase().trim()
+
+  // Direct substring match
+  if (t.includes(q)) return true
+
+  // Every query word must match against the target
+  const queryWords = q.split(/\s+/).filter(Boolean)
+  const targetWords = t.split(/\s+/).filter(Boolean)
+
+  return queryWords.every(qw => {
+    // Substring match (query word inside any target word, or vice versa)
+    if (targetWords.some(tw => tw.includes(qw) || qw.includes(tw))) return true
+    // Sorted characters match (scrambled letters within a word)
+    if (qw.length >= 2) {
+      const qSorted = [...qw].sort().join('')
+      if (targetWords.some(tw => [...tw].sort().join('') === qSorted)) return true
+    }
+    // Subsequence match against full target (handles scrambled/partial matches)
+    return isSubsequence(qw, t)
+  })
 }
